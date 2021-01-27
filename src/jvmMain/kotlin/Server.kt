@@ -1,18 +1,4 @@
-/*import io.ktor.application.*
-import io.ktor.features.*
-import io.ktor.http.*
-import io.ktor.http.content.*
-import io.ktor.request.*
-import io.ktor.response.*
-import io.ktor.routing.*
-import io.ktor.serialization.*
-import io.ktor.server.engine.*
-import io.ktor.server.netty.*
-import org.litote.kmongo.*
-import org.litote.kmongo.coroutine.*
-import org.litote.kmongo.reactivestreams.KMongo
-import com.mongodb.ConnectionString*/
-
+import com.mongodb.ConnectionString
 import io.ktor.application.*
 import io.ktor.features.*
 import io.ktor.http.*
@@ -23,9 +9,13 @@ import io.ktor.routing.*
 import io.ktor.serialization.*
 import io.ktor.server.engine.*
 import io.ktor.server.netty.*
+import org.litote.kmongo.coroutine.coroutine
+import org.litote.kmongo.eq
+import org.litote.kmongo.reactivestreams.KMongo
 
 fun main() {
-    embeddedServer(Netty, 9090) {
+    val port = System.getenv("PORT")?.toInt() ?: 9090
+    embeddedServer(Netty, port) {
 
         install(ContentNegotiation) {
             json()
@@ -52,15 +42,15 @@ fun main() {
             }
             route(ShoppingListItem.path) {
                 get {
-                    call.respond(shoppingList)
+                    call.respond(collection.find().toList())
                 }
                 post {
-                    shoppingList += call.receive<ShoppingListItem>()
+                    collection.insertOne(call.receive())
                     call.respond(HttpStatusCode.OK)
                 }
                 delete("/{id}") {
                     val id = call.parameters["id"]?.toInt() ?: error("Invalid delete request")
-                    shoppingList.removeIf { it.id == id }
+                    collection.deleteOne(ShoppingListItem::id eq id)
                     call.respond(HttpStatusCode.OK)
                 }
             }
@@ -68,8 +58,10 @@ fun main() {
     }.start(wait = true)
 }
 
-val shoppingList = mutableListOf(
-    ShoppingListItem("Cucumbers 🥒", 1),
-    ShoppingListItem("Tomatoes 🍅", 2),
-    ShoppingListItem("Orange Juice 🍊", 3)
-)
+val connectionString: ConnectionString? = System.getenv("MONGODB_URI")?.let {
+    ConnectionString("$it?retryWrites=false")
+}
+
+val client = if (connectionString != null) KMongo.createClient(connectionString).coroutine else KMongo.createClient().coroutine
+val database = client.getDatabase(connectionString?.database ?: "shoppingList")
+val collection = database.getCollection<ShoppingListItem>()
